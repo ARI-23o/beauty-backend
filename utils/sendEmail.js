@@ -5,6 +5,7 @@ dotenv.config();
 
 const createTransporter = () => {
   return nodemailer.createTransport({
+    // You are already using simple "service" mode (gmail / etc.)
     service: process.env.EMAIL_SERVICE || "gmail",
     auth: {
       user: process.env.EMAIL_USER,
@@ -110,5 +111,103 @@ export const sendRatingRequestEmail = async ({ to, fullName, orderId, ratingLink
     `,
   });
 };
+
+/**
+ * NEW: Contact form confirmation email to customer
+ * Call this right after saving ContactMessage.
+ */
+export const sendContactConfirmationEmail = async ({ to, name, message }) => {
+  const subject = "We received your message — BeautyE";
+
+  const html = `
+    <div style="font-family:Arial,sans-serif;line-height:1.6">
+      <h2 style="color:#E91E63">Thanks for contacting BeautyE</h2>
+      <p>Hi ${name || "there"},</p>
+      <p>We have received your message and our team will get back to you as soon as possible.</p>
+      <p><strong>Your message:</strong></p>
+      <blockquote style="border-left:4px solid #E91E63;padding-left:10px;margin-left:0;color:#555;">
+        ${message}
+      </blockquote>
+      <p>Meanwhile, you can continue exploring our latest luxury beauty products on our website.</p>
+      <p>With love,<br/>BeautyE Team</p>
+    </div>
+  `;
+
+  return await sendEmail({ to, subject, html });
+};
+
+/**
+ * NEW: Contact form notification email to admin
+ * Uses ADMIN_CONTACT_NOTIFY if present, otherwise falls back to EMAIL_USER.
+ */
+export const sendContactAdminNotificationEmail = async ({
+  name,
+  email,
+  phone,
+  subject,
+  message,
+  createdAt,
+  ip,
+  userAgent,
+}) => {
+  const to =
+    process.env.ADMIN_CONTACT_NOTIFY ||
+    process.env.EMAIL_USER ||
+    process.env.EMAIL_FROM;
+
+  if (!to) {
+    console.warn("⚠️ No ADMIN_CONTACT_NOTIFY / EMAIL_USER set for admin contact notifications.");
+    return;
+  }
+
+  const mailSubject = `New contact message from ${name || "Visitor"}`;
+
+  const html = `
+    <div style="font-family:Arial,sans-serif;line-height:1.6">
+      <h2 style="color:#111">New Contact Message</h2>
+      <p><strong>Name:</strong> ${name || "—"}</p>
+      <p><strong>Email:</strong> ${email || "—"}</p>
+      <p><strong>Phone:</strong> ${phone || "—"}</p>
+      <p><strong>Subject:</strong> ${subject || "—"}</p>
+      <p><strong>Message:</strong></p>
+      <blockquote style="border-left:4px solid #ccc;padding-left:10px;margin-left:0;color:#555;">
+        ${message}
+      </blockquote>
+      <hr/>
+      <p style="font-size:12px;color:#888;">
+        Submitted at: ${createdAt ? new Date(createdAt).toLocaleString() : "—"}<br/>
+        IP: ${ip || "—"}<br/>
+        User Agent: ${userAgent || "—"}
+      </p>
+    </div>
+  `;
+
+  return await sendEmail({
+    to,
+    subject: mailSubject,
+    html,
+  });
+};
+
+// -----------------------------
+// CONTACT: SEND ADMIN → USER REPLY EMAIL
+// -----------------------------
+export const sendContactReplyEmail = async ({ to, name, subject, replyMessage }) => {
+  const html = `
+    <div style="font-family:Arial, Helvetica, sans-serif; line-height:1.6;">
+      <h2 style="color:#E91E63;">Response from BeautyE Support</h2>
+      <p>Hi ${name || "Customer"},</p>
+      <p>${replyMessage.replace(/\n/g, "<br/>")}</p>
+      <p style="margin-top:18px;">Warm regards,<br/>BeautyE Support Team</p>
+    </div>
+  `;
+
+  return await sendEmail({
+    to,
+    subject,
+    html,
+  });
+};
+
 
 export default sendEmail;
