@@ -102,7 +102,7 @@ app.post(
 
 // ---------- JSON body parser (for normal routes) ----------
 app.use(express.json());
-app.use("/api", adminContactRoutes);
+app.use("/api/contact", adminContactRoutes);
 
 // ---------- Tracking routes & cron ----------
 app.use("/api/tracking", trackingRoutes);
