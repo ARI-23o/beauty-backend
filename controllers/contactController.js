@@ -2,6 +2,39 @@
 import ContactMessage from "../models/ContactMessage.js";
 import sendEmail from "../utils/sendEmail.js";
 
+/**
+ * USER → CREATE CONTACT MESSAGE
+ * POST /api/contact
+ */
+export const createContactMessage = async (req, res) => {
+  try {
+    const { name, email, message } = req.body;
+
+    if (!name || !email || !message) {
+      return res.status(400).json({ message: "All fields are required" });
+    }
+
+    const contact = await ContactMessage.create({
+      name,
+      email,
+      message,
+    });
+
+    res.status(201).json({
+      success: true,
+      message: "Message sent successfully",
+    });
+
+  } catch (err) {
+    console.error("Create contact error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+/**
+ * ADMIN → REPLY TO CONTACT
+ * POST /api/admin/contacts/:id/reply
+ */
 export const replyToContactMessage = async (req, res) => {
   try {
     const { id } = req.params;
@@ -16,36 +49,31 @@ export const replyToContactMessage = async (req, res) => {
       return res.status(404).json({ message: "Contact message not found" });
     }
 
-    // Save reply info
     message.replied = true;
     message.replyText = reply;
     message.repliedAt = new Date();
     await message.save();
 
-    // ✅ Respond immediately (NO waiting for email)
-    res.json({
-      success: true,
-      message: "Reply saved and sent successfully",
-    });
+    // ✅ Respond immediately
+    res.json({ success: true, message: "Reply sent successfully" });
 
-    // 🔥 Send email in background (non-blocking)
+    // 🔥 Send email in background
     sendEmail({
       to: message.email,
       subject: "Reply from BeautyE Store",
       html: `
-        <div style="font-family: Arial, sans-serif;">
-          <h3>Hello ${message.name || "Customer"},</h3>
-          <p>${reply}</p>
-          <br/>
-          <p>Regards,<br/><strong>BeautyE Store</strong></p>
-        </div>
+        <p>${reply}</p>
+        <br/>
+        <strong>BeautyE Store</strong>
       `,
     }).catch((err) => {
-      console.error("Email sending failed:", err.message);
+      console.error("Email failed:", err.message);
     });
 
   } catch (err) {
     console.error("Reply contact error:", err);
-    res.status(500).json({ message: "Server error" });
+    if (!res.headersSent) {
+      res.status(500).json({ message: "Server error" });
+    }
   }
 };
