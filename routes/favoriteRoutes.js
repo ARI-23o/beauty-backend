@@ -1,6 +1,6 @@
 // server/routes/favoriteRoutes.js
 import express from "express";
-import  verifyToken  from "../middleware/verifyToken.js";
+import verifyToken from "../middleware/verifyToken.js";
 
 const router = express.Router();
 
@@ -10,7 +10,6 @@ const router = express.Router();
  */
 router.get("/favorites", verifyToken, async (req, res) => {
   try {
-    // Later you can fetch from DB
     res.json([]);
   } catch (err) {
     console.error("Favorites error:", err);
