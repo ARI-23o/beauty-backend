@@ -1,6 +1,6 @@
 // controllers/contactController.js
 import ContactMessage from "../models/ContactMessage.js";
-import { sendEmail } from "../utils/sendEmail.js";
+import sendEmail from "../utils/sendEmail.js";
 
 export const replyToContactMessage = async (req, res) => {
   try {
