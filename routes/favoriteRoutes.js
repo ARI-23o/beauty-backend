@@ -8,7 +8,10 @@ import {
 
 const router = express.Router();
 
-// 🔐 PROTECT ALL FAVORITES ROUTES
+// 🔍 TEMP DEBUG (VERY IMPORTANT)
+console.log("✅ favoriteRoutes loaded");
+
+// 🔐 protect all routes
 router.use(verifyToken);
 
 router.get("/", getFavorites);
