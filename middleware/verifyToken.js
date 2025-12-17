@@ -20,10 +20,10 @@ const verifyToken = (req, res, next) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
     req.user = {
-      id: decoded.id || decoded._id,
-      email: decoded.email || null,
-      name: decoded.name || null,
-    };
+  id: decoded.id || decoded._id || decoded.userId,
+  email: decoded.email || null,
+  name: decoded.name || null,
+};
 
     next();
   } catch (error) {
