@@ -102,6 +102,7 @@ app.post(
 
 // ---------- JSON body parser (for normal routes) ----------
 app.use(express.json());
+app.use("/api/favorites", favoriteRoutes);
 app.use("/api/contact", adminContactRoutes);
 
 // ---------- Tracking routes & cron ----------
@@ -251,7 +252,6 @@ app.use("/api/search-history", searchHistoryRoutes);
 app.use("/api/filters", filterRoutes);
 app.use("/api/ratings", ratingRoutes);
 app.use("/api/test", testRoutes);
-app.use("/api/favorites", favoriteRoutes);
 app.use("/api", contactRoutes); // this gives POST /api/contact
 
 // Root
