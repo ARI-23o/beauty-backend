@@ -1,4 +1,3 @@
-// server/routes/favoriteRoutes.js
 import express from "express";
 import verifyToken from "../middleware/verifyToken.js";
 import {
@@ -9,19 +8,11 @@ import {
 
 const router = express.Router();
 
-/**
- * GET /api/favorites
- */
-router.get("/", verifyToken, getFavorites);
+// 🔐 PROTECT ALL FAVORITES ROUTES
+router.use(verifyToken);
 
-/**
- * POST /api/favorites/:productId
- */
-router.post("/:productId", verifyToken, addFavorite);
-
-/**
- * DELETE /api/favorites/:productId
- */
-router.delete("/:productId", verifyToken, removeFavorite);
+router.get("/", getFavorites);
+router.post("/:productId", addFavorite);
+router.delete("/:productId", removeFavorite);
 
 export default router;
