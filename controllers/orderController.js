@@ -84,11 +84,14 @@ export const checkoutOrder = async (req, res) => {
     const recipient = userEmail || shippingAddress?.email;
     if (recipient) {
       try {
-        await sendEmail({
-          to: recipient,
-          subject: "Order Confirmation – BeautyE",
-          html: generateOrderEmail(savedOrder),
-        });
+        sendEmail({
+  to: recipient,
+  subject: "Order Confirmation – BeautyE",
+  html: generateOrderEmail(savedOrder),
+}).catch((err) => {
+  console.error("📧 Email send failed (non-blocking):", err.message);
+});
+
         console.log("📧 Confirmation email sent to:", recipient);
       } catch (emailErr) {
         console.error("❌ Failed to send confirmation email:", emailErr.message);
