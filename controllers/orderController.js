@@ -1,293 +1,375 @@
-// server/controllers/orderController.js
-import Order from "../models/Order.js";
-import sendEmail from "../utils/sendEmail.js";
-import { generateOrderEmail, generateInvoiceEmail } from "../utils/orderEmailTemplate.js";
-import fs from "fs";
-import path from "path";
-import PDFDocument from "pdfkit";
-import jwt from "jsonwebtoken";
-import dotenv from "dotenv";
-import Product from "../models/Product.js";
+// src/pages/Checkout.jsx
+import React, { useState, useEffect } from "react";
+import { useCart } from "../context/CartContext";
+import { Link, useNavigate } from "react-router-dom";
+import api from "../api";
 
-dotenv.config();
-const RATING_TOKEN_SECRET = process.env.RATING_TOKEN_SECRET || process.env.JWT_SECRET;
-const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
+const Checkout = () => {
+  const {
+    cartItems,
+    totalAmount,
+    clearCart,
+    loyaltyPoints,
+    addLoyaltyPoints,
+    calculateEarnedPoints,
+  } = useCart();
 
-/* =============================
-   ✅ Get all orders for logged-in user
-   ============================= */
-export const getUserOrders = async (req, res) => {
-  try {
-    const userId = req.user.id; // from verifyToken middleware
-    console.log("📦 Fetching orders for user:", userId);
+  const navigate = useNavigate();
 
-    const orders = await Order.find({ userId }).sort({ createdAt: -1 });
+  // ===============================
+  // 🔐 Decode JWT (SAFE)
+  // ===============================
+  const token = localStorage.getItem("token");
+  let loggedInUser = null;
 
-    if (!orders || orders.length === 0) {
-      return res.status(200).json([]); // ✅ Return empty array instead of 404
+  if (token) {
+    try {
+      const payload = JSON.parse(atob(token.split(".")[1]));
+      loggedInUser = {
+        id: payload.id || payload._id || payload.userId,
+        email: payload.email,
+        name: payload.name || payload.fullName || "",
+      };
+    } catch {
+      loggedInUser = null;
     }
-
-    res.status(200).json(orders);
-  } catch (error) {
-    console.error("❌ Error fetching user orders:", error);
-    res.status(500).json({ message: "Failed to fetch user orders" });
   }
-};
 
-/* =============================
-   ✅ Checkout - Place an Order
-   ============================= */
-export const checkoutOrder = async (req, res) => {
-  try {
-    console.log("🟢 Checkout Request Body:", JSON.stringify(req.body, null, 2));
-
-    // ✅ Extract user from token
-    const userId = req.user?.id;
-    const userEmail = req.user?.email;
-
-    if (!userId) {
-      console.error("❌ No valid user ID found in token");
-      return res.status(401).json({ message: "Unauthorized. Please log in again." });
+  // Redirect if not logged in
+  useEffect(() => {
+    if (!token || !loggedInUser?.id) {
+      navigate("/login");
     }
+  }, [token, loggedInUser, navigate]);
 
-    const { items, totalAmount, shippingAddress, paymentMethod } = req.body;
+  // ===============================
+  // 🧾 Form State
+  // ===============================
+  const [formData, setFormData] = useState({
+    fullName: loggedInUser?.name || "",
+    email: loggedInUser?.email || "",
+    phone: "",
+    address: "",
+    city: "",
+    postalCode: "",
+    country: "India",
+  });
 
-    if (!items || items.length === 0 || !totalAmount) {
-      console.error("❌ Missing required order fields");
-      return res.status(400).json({ message: "Missing required order fields" });
+  const [errors, setErrors] = useState({});
+  const [isLoading, setIsLoading] = useState(false);
+  const [earnedPoints, setEarnedPoints] = useState(0);
+
+  // Loyalty preview
+  useEffect(() => {
+    setEarnedPoints(calculateEarnedPoints(totalAmount));
+  }, [totalAmount, calculateEarnedPoints]);
+
+  const formatPrice = (amount) =>
+    amount.toLocaleString("en-IN", {
+      style: "currency",
+      currency: "INR",
+    });
+
+  // ===============================
+  // ✅ Validators
+  // ===============================
+  const validators = {
+    fullName: (v) =>
+      /^[A-Za-z ]+$/.test(v)
+        ? ""
+        : "Full name should contain only alphabets",
+    phone: (v) =>
+      /^\d{10}$/.test(v)
+        ? ""
+        : "Phone number must be exactly 10 digits",
+    address: (v) =>
+      v.length >= 5 ? "" : "Address must be at least 5 characters",
+    city: (v) =>
+      /^[A-Za-z ]+$/.test(v)
+        ? ""
+        : "City should contain only alphabets",
+    postalCode: (v) =>
+      /^\d{6}$/.test(v)
+        ? ""
+        : "Postal code must be exactly 6 digits",
+  };
+
+  const validateAll = () => {
+    const newErrors = {};
+    Object.keys(validators).forEach((field) => {
+      const err = validators[field](formData[field]);
+      if (err) newErrors[field] = err;
+    });
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setFormData((p) => ({ ...p, [name]: value }));
+
+    if (validators[name]) {
+      setErrors((prev) => ({
+        ...prev,
+        [name]: validators[name](value),
+      }));
     }
+  };
 
-    // ✅ Create new order
-    const order = new Order({
-      userId,
-      items: items.map((item) => ({
-        productId: item.productId,
-        name: item.name,
-        price: item.price,
-        quantity: item.quantity,
-      })),
+  // ===============================
+  // 📦 Build Order Items
+  // ===============================
+  const buildOrderItems = () =>
+    cartItems.map((item) => ({
+      productId: item.productId || item._id || item.id,
+      name: item.name,
+      price: item.price,
+      quantity: item.quantity,
+      image: item.image,
+    }));
+
+  // ===============================
+  // 💰 COD ORDER
+  // ===============================
+  const handlePlaceOrder = async (e) => {
+    e.preventDefault();
+    if (!validateAll()) return;
+
+    const orderData = {
+      items: buildOrderItems(),
       totalAmount,
-      shippingAddress: {
-        ...shippingAddress,
-        email: userEmail || shippingAddress?.email || "noemail@beautye.com",
-      },
-      paymentMethod: paymentMethod || "COD",
-      paymentStatus: paymentMethod === "Razorpay" ? "Paid" : "Pending",
-      status: "Pending",
-      rated: false,
-    });
+      shippingAddress: { ...formData },
+      paymentMethod: "COD",
+    };
 
-    const savedOrder = await order.save();
-    console.log("✅ Order saved successfully:", savedOrder._id);
+    try {
+      setIsLoading(true);
 
-    // ✅ Send confirmation email
-    const recipient = userEmail || shippingAddress?.email;
-    if (recipient) {
-      try {
-        await sendEmail({
-          to: recipient,
-          subject: "Order Confirmation – BeautyE",
-          html: generateOrderEmail(savedOrder),
+      const res = await api.post("/api/orders/checkout", orderData);
+
+      if (res.data?.success) {
+        const pts = addLoyaltyPoints(totalAmount);
+        clearCart();
+
+        navigate("/thankyou", {
+          state: {
+            name: formData.fullName,
+            total: totalAmount,
+            earnedPoints: pts,
+          },
         });
-        console.log("📧 Confirmation email sent to:", recipient);
-      } catch (emailErr) {
-        console.error("❌ Failed to send confirmation email:", emailErr.message);
+      } else {
+        alert("Order failed. Please try again.");
       }
-    } else {
-      console.warn("⚠️ No recipient email found, skipping email send.");
+    } catch (err) {
+      console.error("Checkout Error:", err);
+      alert("Unable to place order. Please try again.");
+    } finally {
+      setIsLoading(false);
     }
+  };
 
-    return res.status(201).json({
-      success: true,
-      message: "Order placed successfully!",
-      order: savedOrder,
-    });
-  } catch (err) {
-    console.error("❌ Error in checkoutOrder:", err);
-    res.status(500).json({
-      success: false,
-      message: "Failed to place order",
-      error: err.message,
-    });
-  }
-};
+  // ===============================
+  // 💳 Razorpay
+  // ===============================
+  const handleRazorpayPayment = async () => {
+    if (!validateAll()) return;
 
-/* =============================
-   ✅ Admin Routes
-   ============================= */
-export const getAllOrders = async (req, res) => {
-  try {
-    const orders = await Order.find().populate("userId", "name email");
-    res.json(orders);
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-};
+    try {
+      setIsLoading(true);
 
-export const getOrderById = async (req, res) => {
-  try {
-    const order = await Order.findById(req.params.id).populate("userId", "name email");
-    if (!order) return res.status(404).json({ message: "Order not found" });
-    res.json(order);
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-};
+      const { data } = await api.post("/api/payments/create-order", {
+        amount: totalAmount,
+        receipt: "rcpt_" + Date.now(),
+        notes: { userId: loggedInUser.id },
+      });
 
-export const updateOrderStatus = async (req, res) => {
-  try {
-    const { status } = req.body;
-    const order = await Order.findById(req.params.id).populate("userId", "name email");
+      const { order } = data;
 
-    if (!order) return res.status(404).json({ message: "Order not found" });
-
-    const prevStatus = order.status;
-    order.status = status || order.status;
-    await order.save();
-
-    // If delivered → generate invoice + rating email
-    if (status === "Delivered") {
-      // invoice generation (server-side PDF + email)
-      try {
-        const __dirname = path.resolve();
-        const invoiceDir = path.join(__dirname, "server", "invoices");
-        if (!fs.existsSync(invoiceDir)) fs.mkdirSync(invoiceDir, { recursive: true });
-
-        const pdfPath = path.join(invoiceDir, `invoice_${order._id}.pdf`);
-        const doc = new PDFDocument({ margin: 50 });
-        const stream = fs.createWriteStream(pdfPath);
-        doc.pipe(stream);
-
-        doc.fontSize(20).text("BeautyE - Invoice", { align: "center" });
-        doc.moveDown();
-        doc.fontSize(12).text(`Order ID: ${order._id}`);
-        doc.text(`Customer: ${order.shippingAddress?.fullName || order.userId?.name || "Customer"}`);
-        doc.text(`Email: ${order.userId?.email || order.shippingAddress?.email || "N/A"}`);
-        doc.text(`Address: ${order.shippingAddress?.address || "N/A"}`);
-        if (order.shippingAddress?.city || order.shippingAddress?.country) {
-          doc.text(
-            `City: ${order.shippingAddress?.city || ""}${
-              order.shippingAddress?.country ? ", " + order.shippingAddress.country : ""
-            }`
-          );
-        }
-        doc.moveDown();
-
-        doc.text("Items:", { underline: true });
-        order.items.forEach((item, index) => {
-          doc.text(`${index + 1}. ${item.name} — ${item.quantity} × ₹${item.price} = ₹${item.quantity * item.price}`);
-        });
-        doc.moveDown();
-        doc.text(`Total Amount: ₹${order.totalAmount}`, { align: "right" });
-        doc.text(`Payment Method: ${order.paymentMethod || "N/A"}`);
-        doc.text(`Status: ${order.status}`);
-        doc.moveDown();
-        doc.text("Thank you for shopping with BeautyE!", { align: "center" });
-        doc.end();
-
-        await new Promise((resolve) => stream.on("finish", resolve));
-
-        const recipientEmail = order.userId?.email || order.shippingAddress?.email || null;
-        if (recipientEmail) {
+      const options = {
+        key: import.meta.env.VITE_RAZORPAY_KEY_ID,
+        amount: order.amount,
+        currency: order.currency,
+        order_id: order.id,
+        name: "BeautyE Store",
+        description: "Order Payment",
+        handler: async (response) => {
           try {
-            // send invoice email
-            await sendEmail({
-              to: recipientEmail,
-              subject: `Your BeautyE Order #${order._id} Invoice`,
-              html: generateInvoiceEmail(order),
-              attachments: [{ filename: `invoice_${order._id}.pdf`, path: pdfPath }],
-            });
-            console.log("📦 Invoice email sent successfully to:", recipientEmail);
-          } catch (emailErr) {
-            console.error("❌ Failed to send invoice email:", emailErr.message || emailErr);
+            const verifyRes = await api.post(
+              "/api/payments/verify-payment",
+              {
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_payment_id:
+                  response.razorpay_payment_id,
+                razorpay_signature:
+                  response.razorpay_signature,
+              }
+            );
+
+            if (verifyRes.data.success) {
+              await api.post("/api/orders/checkout", {
+                items: buildOrderItems(),
+                totalAmount,
+                shippingAddress: { ...formData },
+                paymentMethod: "Razorpay",
+              });
+
+              const pts = addLoyaltyPoints(totalAmount);
+              clearCart();
+
+              navigate("/thankyou", {
+                state: {
+                  name: formData.fullName,
+                  total: totalAmount,
+                  earnedPoints: pts,
+                },
+              });
+            } else {
+              alert("Payment verification failed");
+            }
+          } catch (err) {
+            console.error("Razorpay verify error:", err);
+            alert("Verification failed. Try again.");
           }
-        } else {
-          console.warn("⚠️ No email available for the order; invoice not emailed.");
-        }
-      } catch (invoiceErr) {
-        console.error("❌ Invoice generation error:", invoiceErr);
-      }
+        },
+        prefill: {
+          name: formData.fullName,
+          email: formData.email,
+          contact: formData.phone,
+        },
+        theme: { color: "#F37254" },
+      };
 
-      // --- Rating request email (combined rating link)
-      try {
-        const token = jwt.sign({ orderId: order._id, userId: order.userId?._id }, RATING_TOKEN_SECRET, {
-          expiresIn: "14d",
-        });
-        const ratingLink = `${FRONTEND_URL}/rate-order/${token}`;
-        const recipientEmail = order.userId?.email || order.shippingAddress?.email || null;
-        const fullName = order.shippingAddress?.fullName || order.userId?.name || "Customer";
-
-        if (recipientEmail) {
-          await sendEmail({
-            to: recipientEmail,
-            subject: `Your BeautyE Order ${order._id} — We'd love your feedback`,
-            html: `
-              <div style="font-family:Arial,sans-serif;line-height:1.6">
-                <h2 style="color:#E91E63">Your order has been delivered</h2>
-                <p>Hi ${fullName},</p>
-                <p>Your order <strong>${order._id}</strong> has been marked as <strong>Delivered</strong>. We would be grateful if you could take a moment to rate your order.</p>
-                <p><a href="${ratingLink}" style="background:#E91E63;color:#fff;padding:10px 14px;border-radius:6px;text-decoration:none;">Rate your order</a></p>
-                <p>This link will be valid for 14 days.</p>
-                <p>Thanks,<br/>BeautyE Team</p>
-              </div>
-            `,
-          });
-          console.log("📧 Rating request email sent to", recipientEmail);
-        }
-      } catch (ratingErr) {
-        console.error("❌ Failed to send rating request email:", ratingErr);
-      }
+      const razor = new window.Razorpay(options);
+      razor.open();
+    } catch (err) {
+      console.error("Razorpay init error:", err);
+      alert("Unable to initialize payment.");
+    } finally {
+      setIsLoading(false);
     }
+  };
 
-    res.json({ message: "Order status updated successfully", order });
-  } catch (err) {
-    console.error("❌ Error updating status:", err);
-    res.status(500).json({ message: "Failed to update order status" });
+  // ===============================
+  // 🛒 Empty Cart
+  // ===============================
+  if (cartItems.length === 0) {
+    return (
+      <div className="text-center py-20 bg-gray-50 min-h-[80vh]">
+        <h2 className="text-3xl font-semibold mb-4">
+          Your cart is empty 🛒
+        </h2>
+        <Link
+          to="/shop"
+          className="bg-pink-500 text-white px-6 py-3 rounded-lg"
+        >
+          Go Shopping
+        </Link>
+      </div>
+    );
   }
+
+  // ===============================
+  // 🧾 UI (UNCHANGED)
+  // ===============================
+  return (
+    <div className="bg-gray-50 py-24 px-6 md:px-20">
+      <h2 className="text-4xl font-semibold text-center mb-10">
+        Checkout
+      </h2>
+
+      <div className="grid md:grid-cols-2 gap-10 max-w-6xl mx-auto">
+        {/* Billing */}
+        <form
+          onSubmit={handlePlaceOrder}
+          className="bg-white p-8 rounded-2xl shadow"
+        >
+          <h3 className="text-2xl mb-6">Billing Details</h3>
+
+          {[
+            { label: "Full Name", name: "fullName" },
+            { label: "Phone Number", name: "phone" },
+            { label: "Address", name: "address", type: "textarea" },
+            { label: "City", name: "city" },
+            { label: "Postal Code", name: "postalCode" },
+          ].map(({ label, name, type }) => (
+            <div className="mb-5" key={name}>
+              <label className="block mb-1">{label}</label>
+              {type === "textarea" ? (
+                <textarea
+                  name={name}
+                  value={formData[name]}
+                  onChange={handleChange}
+                  className="w-full border rounded px-3 py-2"
+                />
+              ) : (
+                <input
+                  name={name}
+                  value={formData[name]}
+                  onChange={handleChange}
+                  className="w-full border rounded px-3 py-2"
+                />
+              )}
+              {errors[name] && (
+                <p className="text-red-500 text-sm">
+                  {errors[name]}
+                </p>
+              )}
+            </div>
+          ))}
+
+          <button
+            disabled={isLoading}
+            className="w-full bg-pink-500 text-white py-3 rounded-full"
+          >
+            {isLoading ? "Processing..." : "Place Order (COD)"}
+          </button>
+
+          <button
+            type="button"
+            onClick={handleRazorpayPayment}
+            disabled={isLoading}
+            className="w-full mt-3 bg-green-500 text-white py-3 rounded-full"
+          >
+            Pay with Razorpay
+          </button>
+        </form>
+
+        {/* Summary */}
+        <div className="bg-white p-8 rounded-2xl shadow">
+          <h3 className="text-2xl mb-6">Order Summary</h3>
+
+          {cartItems.map((item, idx) => (
+            <div
+              key={idx}
+              className="flex justify-between border-b py-2"
+            >
+              <div>
+                <p>{item.name}</p>
+                <p className="text-sm text-gray-500">
+                  {item.quantity} × {formatPrice(item.price)}
+                </p>
+              </div>
+              <span>
+                {formatPrice(item.price * item.quantity)}
+              </span>
+            </div>
+          ))}
+
+          <div className="mt-6 bg-pink-50 p-4 rounded">
+            <p>
+              Earn{" "}
+              <strong>{earnedPoints}</strong> loyalty points
+            </p>
+            <p>
+              Current balance:{" "}
+              <strong>{loyaltyPoints}</strong>
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 };
 
-export const deleteOrder = async (req, res) => {
-  try {
-    const order = await Order.findById(req.params.id);
-    if (!order) return res.status(404).json({ message: "Order not found" });
-    await order.deleteOne();
-    res.json({ message: "Order deleted successfully" });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-};
-
-export const generateInvoice = async (req, res) => {
-  try {
-    const order = await Order.findById(req.params.id);
-    if (!order) return res.status(404).json({ message: "Order not found" });
-
-    const pdf = new PDFDocument({ margin: 50 });
-    const chunks = [];
-    pdf.on("data", (chunk) => chunks.push(chunk));
-    pdf.on("end", () => {
-      const result = Buffer.concat(chunks);
-      res.setHeader("Content-Type", "application/pdf");
-      res.setHeader("Content-Disposition", `attachment; filename=invoice_${order._id}.pdf`);
-      res.send(result);
-    });
-
-    pdf.fontSize(20).text("BeautyE - Invoice", { align: "center" });
-    pdf.moveDown();
-    pdf.fontSize(12).text(`Order ID: ${order._id}`);
-    pdf.text(`Customer: ${order.shippingAddress.fullName}`);
-    pdf.text(`Email: ${order.shippingAddress.email}`);
-    pdf.text(`Address: ${order.shippingAddress.address}`);
-    pdf.moveDown();
-    pdf.text("Items:", { underline: true });
-    order.items.forEach((item, index) => {
-      pdf.text(`${index + 1}. ${item.name} — ${item.quantity} × ₹${item.price} = ₹${item.quantity * item.price}`);
-    });
-    pdf.moveDown();
-    pdf.text(`Total Amount: ₹${order.totalAmount}`, { align: "right" });
-    pdf.end();
-  } catch (err) {
-    console.error("❌ Error generating invoice:", err);
-    res.status(500).json({ message: "Failed to generate invoice" });
-  }
-};
+export default Checkout;
