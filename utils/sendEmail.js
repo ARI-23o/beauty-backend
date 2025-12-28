@@ -1,22 +1,28 @@
-// server/utils/sendEmail.js
 import nodemailer from "nodemailer";
 import dotenv from "dotenv";
 
 dotenv.config();
 
 /* =====================================================
-   🔐 SMTP TRANSPORT (GMAIL)
+   🔐 SMTP TRANSPORT (BREVO)
    ===================================================== */
 
-if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
-  console.error("❌ EMAIL_USER or EMAIL_PASS is missing in environment variables");
+if (
+  !process.env.SMTP_HOST ||
+  !process.env.SMTP_PORT ||
+  !process.env.SMTP_USER ||
+  !process.env.SMTP_PASS
+) {
+  console.error("❌ Brevo SMTP environment variables are missing");
 }
 
 const transporter = nodemailer.createTransport({
-  service: "gmail",
+  host: process.env.SMTP_HOST,            // smtp-relay.brevo.com
+  port: Number(process.env.SMTP_PORT),    // 587
+  secure: false,                          // TLS
   auth: {
-    user: process.env.EMAIL_USER, // your@gmail.com
-    pass: process.env.EMAIL_PASS, // Gmail App Password (16 chars)
+    user: process.env.SMTP_USER,          // Brevo SMTP login
+    pass: process.env.SMTP_PASS,          // Brevo SMTP key
   },
 });
 
@@ -25,36 +31,29 @@ const transporter = nodemailer.createTransport({
    ===================================================== */
 const sendEmail = async ({ to, subject, html, attachments = [] }) => {
   try {
-    console.log("📧 Preparing to send email to:", to);
+    console.log("📧 Sending email to:", to);
 
     if (!to) {
-      throw new Error("Recipient email (to) is missing");
+      throw new Error("Recipient email is missing");
     }
 
-    // Optional: verify SMTP connection (safe on Render)
-    try {
-      await transporter.verify();
-      console.log("✅ SMTP connection verified");
-    } catch (verifyErr) {
-      console.warn("⚠️ SMTP verify warning:", verifyErr.message);
-    }
-
-    const mailOptions = {
-      from:
-        process.env.EMAIL_FROM ||
-        `"BeautyE" <${process.env.EMAIL_USER}>`,
+    const info = await transporter.sendMail({
+      from: process.env.EMAIL_FROM, // BeautyE <no-reply@brevo.me>
       to,
       subject,
       html,
       attachments,
-    };
+    });
 
-    const info = await transporter.sendMail(mailOptions);
+    console.log("✅ Email accepted by SMTP:", {
+      messageId: info.messageId,
+      accepted: info.accepted,
+      rejected: info.rejected,
+    });
 
-    console.log("✅ Email sent successfully:", info.messageId);
     return info;
   } catch (error) {
-    console.error("❌ Email send failed:", error);
+    console.error("❌ Email failed:", error.message);
     throw error;
   }
 };
@@ -78,7 +77,7 @@ export const sendEmailWithOTP = async (to, otp) => {
     </div>
   `;
 
-  return await sendEmail({ to, subject, html });
+  return sendEmail({ to, subject, html });
 };
 
 /* =====================================================
@@ -98,7 +97,7 @@ export const sendPasswordResetEmail = async (to, link) => {
     </div>
   `;
 
-  return await sendEmail({ to, subject, html });
+  return sendEmail({ to, subject, html });
 };
 
 /* =====================================================
@@ -128,11 +127,11 @@ export const sendRatingRequestEmail = async ({
     </div>
   `;
 
-  return await sendEmail({ to, subject, html });
+  return sendEmail({ to, subject, html });
 };
 
 /* =====================================================
-   📩 CONTACT FORM → USER CONFIRMATION
+   📩 CONTACT → USER CONFIRMATION
    ===================================================== */
 export const sendContactConfirmationEmail = async ({
   to,
@@ -153,11 +152,11 @@ export const sendContactConfirmationEmail = async ({
     </div>
   `;
 
-  return await sendEmail({ to, subject, html });
+  return sendEmail({ to, subject, html });
 };
 
 /* =====================================================
-   🛠 CONTACT FORM → ADMIN NOTIFICATION
+   🛠 CONTACT → ADMIN NOTIFICATION
    ===================================================== */
 export const sendContactAdminNotificationEmail = async ({
   name,
@@ -166,32 +165,28 @@ export const sendContactAdminNotificationEmail = async ({
   subject,
   message,
 }) => {
-  const adminEmail =
-    process.env.ADMIN_CONTACT_NOTIFY ||
-    process.env.EMAIL_USER;
-
-  const mailSubject = subject || "New Contact Message";
+  const adminEmail = process.env.ADMIN_CONTACT_NOTIFY;
 
   const html = `
     <div style="font-family:Arial,sans-serif;line-height:1.6">
       <h2>New Contact Message</h2>
-      <p><strong>Name:</strong> ${name || "—"}</p>
-      <p><strong>Email:</strong> ${email || "—"}</p>
-      <p><strong>Phone:</strong> ${phone || "—"}</p>
+      <p><strong>Name:</strong> ${name}</p>
+      <p><strong>Email:</strong> ${email}</p>
+      <p><strong>Phone:</strong> ${phone}</p>
       <p><strong>Message:</strong></p>
       <blockquote>${message}</blockquote>
     </div>
   `;
 
-  return await sendEmail({
+  return sendEmail({
     to: adminEmail,
-    subject: mailSubject,
+    subject: subject || "New Contact Message",
     html,
   });
 };
 
 /* =====================================================
-   ✉️ CONTACT REPLY EMAIL (ADMIN → USER)
+   ✉️ CONTACT REPLY (ADMIN → USER)
    ===================================================== */
 export const sendContactReplyEmail = async ({
   to,
@@ -208,5 +203,5 @@ export const sendContactReplyEmail = async ({
     </div>
   `;
 
-  return await sendEmail({ to, subject, html });
+  return sendEmail({ to, subject, html });
 };
