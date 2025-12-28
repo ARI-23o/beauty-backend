@@ -1,22 +1,28 @@
 // server/utils/sendEmail.js
-
-import { Resend } from "resend";
+import nodemailer from "nodemailer";
 import dotenv from "dotenv";
 
 dotenv.config();
 
-// =====================================================
-// 🔐 Initialize Resend Client
-// =====================================================
-if (!process.env.RESEND_API_KEY) {
-  console.error("❌ RESEND_API_KEY is missing in environment variables");
+/* =====================================================
+   🔐 SMTP TRANSPORT (GMAIL)
+   ===================================================== */
+
+if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
+  console.error("❌ EMAIL_USER or EMAIL_PASS is missing in environment variables");
 }
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+const transporter = nodemailer.createTransport({
+  service: "gmail",
+  auth: {
+    user: process.env.EMAIL_USER, // your@gmail.com
+    pass: process.env.EMAIL_PASS, // Gmail App Password (16 chars)
+  },
+});
 
-// =====================================================
-// 📧 Core Email Sender (USED EVERYWHERE)
-// =====================================================
+/* =====================================================
+   📧 CORE EMAIL SENDER (USED EVERYWHERE)
+   ===================================================== */
 const sendEmail = async ({ to, subject, html, attachments = [] }) => {
   try {
     console.log("📧 Preparing to send email to:", to);
@@ -25,21 +31,28 @@ const sendEmail = async ({ to, subject, html, attachments = [] }) => {
       throw new Error("Recipient email (to) is missing");
     }
 
-    if (!process.env.RESEND_API_KEY) {
-      throw new Error("RESEND_API_KEY is not configured");
+    // Optional: verify SMTP connection (safe on Render)
+    try {
+      await transporter.verify();
+      console.log("✅ SMTP connection verified");
+    } catch (verifyErr) {
+      console.warn("⚠️ SMTP verify warning:", verifyErr.message);
     }
 
-    const response = await resend.emails.send({
-      from: process.env.EMAIL_FROM || "BeautyE <onboarding@resend.dev>",
+    const mailOptions = {
+      from:
+        process.env.EMAIL_FROM ||
+        `"BeautyE" <${process.env.EMAIL_USER}>`,
       to,
       subject,
       html,
       attachments,
-    });
+    };
 
-    console.log("✅ Resend response:", JSON.stringify(response, null, 2));
+    const info = await transporter.sendMail(mailOptions);
 
-    return response;
+    console.log("✅ Email sent successfully:", info.messageId);
+    return info;
   } catch (error) {
     console.error("❌ Email send failed:", error);
     throw error;
@@ -48,9 +61,9 @@ const sendEmail = async ({ to, subject, html, attachments = [] }) => {
 
 export default sendEmail;
 
-// =====================================================
-// 🔢 OTP EMAIL
-// =====================================================
+/* =====================================================
+   🔢 OTP EMAIL
+   ===================================================== */
 export const sendEmailWithOTP = async (to, otp) => {
   const subject = "Your BeautyE OTP Verification Code";
 
@@ -68,9 +81,9 @@ export const sendEmailWithOTP = async (to, otp) => {
   return await sendEmail({ to, subject, html });
 };
 
-// =====================================================
-// 🔑 PASSWORD RESET EMAIL
-// =====================================================
+/* =====================================================
+   🔑 PASSWORD RESET EMAIL
+   ===================================================== */
 export const sendPasswordResetEmail = async (to, link) => {
   const subject = "Reset Your BeautyE Password";
 
@@ -88,9 +101,9 @@ export const sendPasswordResetEmail = async (to, link) => {
   return await sendEmail({ to, subject, html });
 };
 
-// =====================================================
-// ⭐ ORDER RATING REQUEST EMAIL
-// =====================================================
+/* =====================================================
+   ⭐ ORDER RATING REQUEST EMAIL
+   ===================================================== */
 export const sendRatingRequestEmail = async ({
   to,
   fullName,
@@ -104,9 +117,8 @@ export const sendRatingRequestEmail = async ({
       <h2 style="color:#E91E63">Order Delivered 🎉</h2>
       <p>Hi ${fullName || "Customer"},</p>
       <p>Your order <strong>${orderId}</strong> has been delivered.</p>
-      <p>We would love your feedback.</p>
       <p>
-        <a href="${ratingLink}" 
+        <a href="${ratingLink}"
            style="background:#E91E63;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;">
           Rate Your Order
         </a>
@@ -119,9 +131,9 @@ export const sendRatingRequestEmail = async ({
   return await sendEmail({ to, subject, html });
 };
 
-// =====================================================
-// 📩 CONTACT FORM → USER CONFIRMATION
-// =====================================================
+/* =====================================================
+   📩 CONTACT FORM → USER CONFIRMATION
+   ===================================================== */
 export const sendContactConfirmationEmail = async ({
   to,
   name,
@@ -134,8 +146,7 @@ export const sendContactConfirmationEmail = async ({
       <h2 style="color:#E91E63">Thanks for contacting BeautyE</h2>
       <p>Hi ${name || "there"},</p>
       <p>We’ve received your message and will get back to you soon.</p>
-      <p><strong>Your message:</strong></p>
-      <blockquote style="border-left:4px solid #E91E63;padding-left:10px;color:#555">
+      <blockquote style="border-left:4px solid #E91E63;padding-left:10px;">
         ${message}
       </blockquote>
       <p>— BeautyE Team</p>
@@ -145,9 +156,9 @@ export const sendContactConfirmationEmail = async ({
   return await sendEmail({ to, subject, html });
 };
 
-// =====================================================
-// 🛠 CONTACT FORM → ADMIN NOTIFICATION
-// =====================================================
+/* =====================================================
+   🛠 CONTACT FORM → ADMIN NOTIFICATION
+   ===================================================== */
 export const sendContactAdminNotificationEmail = async ({
   name,
   email,
@@ -157,8 +168,7 @@ export const sendContactAdminNotificationEmail = async ({
 }) => {
   const adminEmail =
     process.env.ADMIN_CONTACT_NOTIFY ||
-    process.env.EMAIL_FROM ||
-    "onboarding@resend.dev";
+    process.env.EMAIL_USER;
 
   const mailSubject = subject || "New Contact Message";
 
@@ -169,9 +179,7 @@ export const sendContactAdminNotificationEmail = async ({
       <p><strong>Email:</strong> ${email || "—"}</p>
       <p><strong>Phone:</strong> ${phone || "—"}</p>
       <p><strong>Message:</strong></p>
-      <blockquote style="border-left:4px solid #ccc;padding-left:10px;color:#555">
-        ${message}
-      </blockquote>
+      <blockquote>${message}</blockquote>
     </div>
   `;
 
@@ -182,9 +190,9 @@ export const sendContactAdminNotificationEmail = async ({
   });
 };
 
-// =====================================================
-// ✉️ CONTACT REPLY EMAIL (ADMIN → USER)
-// =====================================================
+/* =====================================================
+   ✉️ CONTACT REPLY EMAIL (ADMIN → USER)
+   ===================================================== */
 export const sendContactReplyEmail = async ({
   to,
   name,
