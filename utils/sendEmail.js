@@ -1,38 +1,44 @@
 // server/utils/sendEmail.js
+
 import { Resend } from "resend";
 import dotenv from "dotenv";
 
 dotenv.config();
 
-// ==============================
-// 🔐 Initialize Resend
-// ==============================
+// =====================================================
+// 🔐 Initialize Resend Client
+// =====================================================
+if (!process.env.RESEND_API_KEY) {
+  console.error("❌ RESEND_API_KEY is missing in environment variables");
+}
+
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-// ==============================
-// 📧 Core Email Sender
-// ==============================
+// =====================================================
+// 📧 Core Email Sender (USED EVERYWHERE)
+// =====================================================
 const sendEmail = async ({ to, subject, html, attachments = [] }) => {
   try {
     console.log("📧 Preparing to send email to:", to);
 
-    if (!process.env.RESEND_API_KEY) {
-      throw new Error("RESEND_API_KEY is missing in environment variables");
+    if (!to) {
+      throw new Error("Recipient email (to) is missing");
     }
 
-    if (!process.env.EMAIL_FROM) {
-      throw new Error("EMAIL_FROM is missing in environment variables");
+    if (!process.env.RESEND_API_KEY) {
+      throw new Error("RESEND_API_KEY is not configured");
     }
 
     const response = await resend.emails.send({
-      from: process.env.EMAIL_FROM,
+      from: process.env.EMAIL_FROM || "BeautyE <onboarding@resend.dev>",
       to,
       subject,
       html,
-      attachments, // Resend supports attachments
+      attachments,
     });
 
-    console.log("✅ Email sent successfully via Resend:", response.id);
+    console.log("✅ Resend response:", JSON.stringify(response, null, 2));
+
     return response;
   } catch (error) {
     console.error("❌ Email send failed:", error);
@@ -43,7 +49,7 @@ const sendEmail = async ({ to, subject, html, attachments = [] }) => {
 export default sendEmail;
 
 // =====================================================
-// 🔢 OTP Email
+// 🔢 OTP EMAIL
 // =====================================================
 export const sendEmailWithOTP = async (to, otp) => {
   const subject = "Your BeautyE OTP Verification Code";
@@ -53,7 +59,8 @@ export const sendEmailWithOTP = async (to, otp) => {
       <h2 style="color:#E91E63">OTP Verification</h2>
       <p>Your OTP code is:</p>
       <h1>${otp}</h1>
-      <p>This OTP is valid for 5 minutes.</p>
+      <p>This OTP is valid for <strong>5 minutes</strong>.</p>
+      <p>Please do not share it with anyone.</p>
       <p>— BeautyE Team</p>
     </div>
   `;
@@ -62,17 +69,19 @@ export const sendEmailWithOTP = async (to, otp) => {
 };
 
 // =====================================================
-// 🔑 Password Reset Email
+// 🔑 PASSWORD RESET EMAIL
 // =====================================================
 export const sendPasswordResetEmail = async (to, link) => {
   const subject = "Reset Your BeautyE Password";
 
   const html = `
-    <div style="font-family:Arial,sans-serif">
-      <h2>Password Reset</h2>
-      <p>Click below to reset your password:</p>
-      <a href="${link}">${link}</a>
-      <p>This link expires in 15 minutes.</p>
+    <div style="font-family:Arial,sans-serif;line-height:1.6">
+      <h2>Password Reset Request</h2>
+      <p>Click the link below to reset your password:</p>
+      <p><a href="${link}" target="_blank">${link}</a></p>
+      <p>This link expires in <strong>15 minutes</strong>.</p>
+      <p>If you did not request this, please ignore this email.</p>
+      <p>— BeautyE Team</p>
     </div>
   `;
 
@@ -80,7 +89,7 @@ export const sendPasswordResetEmail = async (to, link) => {
 };
 
 // =====================================================
-// ⭐ Rating Request Email
+// ⭐ ORDER RATING REQUEST EMAIL
 // =====================================================
 export const sendRatingRequestEmail = async ({
   to,
@@ -91,13 +100,19 @@ export const sendRatingRequestEmail = async ({
   const subject = `Rate your BeautyE order #${orderId}`;
 
   const html = `
-    <div style="font-family:Arial,sans-serif">
-      <h2>Order Delivered 🎉</h2>
+    <div style="font-family:Arial,sans-serif;line-height:1.6">
+      <h2 style="color:#E91E63">Order Delivered 🎉</h2>
       <p>Hi ${fullName || "Customer"},</p>
-      <p>Your order <b>${orderId}</b> has been delivered.</p>
-      <a href="${ratingLink}" style="background:#E91E63;color:#fff;padding:10px 14px;border-radius:6px;text-decoration:none;">
-        Rate Your Order
-      </a>
+      <p>Your order <strong>${orderId}</strong> has been delivered.</p>
+      <p>We would love your feedback.</p>
+      <p>
+        <a href="${ratingLink}" 
+           style="background:#E91E63;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;">
+          Rate Your Order
+        </a>
+      </p>
+      <p>This link will be valid for 14 days.</p>
+      <p>— BeautyE Team</p>
     </div>
   `;
 
@@ -105,17 +120,25 @@ export const sendRatingRequestEmail = async ({
 };
 
 // =====================================================
-// 📩 Contact Form - User Confirmation
+// 📩 CONTACT FORM → USER CONFIRMATION
 // =====================================================
-export const sendContactConfirmationEmail = async ({ to, name, message }) => {
+export const sendContactConfirmationEmail = async ({
+  to,
+  name,
+  message,
+}) => {
   const subject = "We received your message — BeautyE";
 
   const html = `
-    <div>
-      <h2>Thanks for contacting BeautyE</h2>
+    <div style="font-family:Arial,sans-serif;line-height:1.6">
+      <h2 style="color:#E91E63">Thanks for contacting BeautyE</h2>
       <p>Hi ${name || "there"},</p>
-      <p>Your message:</p>
-      <blockquote>${message}</blockquote>
+      <p>We’ve received your message and will get back to you soon.</p>
+      <p><strong>Your message:</strong></p>
+      <blockquote style="border-left:4px solid #E91E63;padding-left:10px;color:#555">
+        ${message}
+      </blockquote>
+      <p>— BeautyE Team</p>
     </div>
   `;
 
@@ -123,7 +146,7 @@ export const sendContactConfirmationEmail = async ({ to, name, message }) => {
 };
 
 // =====================================================
-// 🛠 Admin Notification Email
+// 🛠 CONTACT FORM → ADMIN NOTIFICATION
 // =====================================================
 export const sendContactAdminNotificationEmail = async ({
   name,
@@ -133,21 +156,49 @@ export const sendContactAdminNotificationEmail = async ({
   message,
 }) => {
   const adminEmail =
-    process.env.ADMIN_CONTACT_NOTIFY || process.env.EMAIL_FROM;
+    process.env.ADMIN_CONTACT_NOTIFY ||
+    process.env.EMAIL_FROM ||
+    "onboarding@resend.dev";
+
+  const mailSubject = subject || "New Contact Message";
 
   const html = `
-    <div>
+    <div style="font-family:Arial,sans-serif;line-height:1.6">
       <h2>New Contact Message</h2>
-      <p>Name: ${name}</p>
-      <p>Email: ${email}</p>
-      <p>Phone: ${phone}</p>
-      <p>Message: ${message}</p>
+      <p><strong>Name:</strong> ${name || "—"}</p>
+      <p><strong>Email:</strong> ${email || "—"}</p>
+      <p><strong>Phone:</strong> ${phone || "—"}</p>
+      <p><strong>Message:</strong></p>
+      <blockquote style="border-left:4px solid #ccc;padding-left:10px;color:#555">
+        ${message}
+      </blockquote>
     </div>
   `;
 
   return await sendEmail({
     to: adminEmail,
-    subject: subject || "New Contact Message",
+    subject: mailSubject,
     html,
   });
+};
+
+// =====================================================
+// ✉️ CONTACT REPLY EMAIL (ADMIN → USER)
+// =====================================================
+export const sendContactReplyEmail = async ({
+  to,
+  name,
+  subject,
+  replyMessage,
+}) => {
+  const html = `
+    <div style="font-family:Arial,sans-serif;line-height:1.6">
+      <h2 style="color:#E91E63">Reply from BeautyE Support</h2>
+      <p>Hi ${name || "Customer"},</p>
+      <p>${replyMessage.replace(/\n/g, "<br/>")}</p>
+      <p>Warm regards,<br/>BeautyE Support Team</p>
+    </div>
+  `;
+
+  return await sendEmail({ to, subject, html });
 };
